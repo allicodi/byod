@@ -1,0 +1,733 @@
+---
+title: "flexdashboard — Part 1: Static Dashboards"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows # or: columns
+    vertical_layout: scroll # or: fill
+    theme: flatly # default, cosmo, darkly, ...
+    navbar:
+      - { title: "Open the .Rmd source alongside this to follow along", align: right }
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(ggplot2)
+library(plotly)
+library(DT)
+library(dplyr)
+library(scales)
+
+# ── Load simulated IPD co-etiology data ────────────────────────────────────
+# Run simulate_data.R once before opening this dashboard to create the file.
+#   source("simulate_data.R")
+ipd_data <- readRDS("data/ipd_sim.Rds")
+
+# ── Constants ───────────────────────────────────────────────────────────────
+PATHOGENS <- c(
+  "rotavirus", "norovirus", "adenovirus", "astrovirus", "sapovirus",
+  "st_etec", "shigella", "campylobacter", "tepec",
+  "v_cholerae", "salmonella", "cryptosporidium"
+)
+
+pathogen_labels <- c(
+  rotavirus       = "Rotavirus",
+  norovirus       = "Norovirus GII",
+  adenovirus      = "Adenovirus",
+  astrovirus      = "Astrovirus",
+  sapovirus       = "Sapovirus",
+  st_etec         = "ST-ETEC",
+  shigella        = "Shigella",
+  campylobacter   = "C. jejuni/coli",
+  tepec           = "tEPEC",
+  v_cholerae      = "V. cholerae",
+  salmonella      = "Salmonella",
+  cryptosporidium = "Cryptosporidium"
+)
+
+STUDIES <- c("ABCD", "EFGH", "GEMS", "VIDA", "MALED")
+
+study_colors <- c(
+  ABCD  = "#00468B",
+  EFGH  = "#925E9F",
+  GEMS  = "#42B540",
+  VIDA  = "#0099B4",
+  MALED = "#ED0000"
+)
+```
+
+
+Introduction {data-icon="fa-home"}
+=====================================
+
+Row {data-height=75}
+-------------------------------------
+
+### What is a dashboard?
+
+A dashboard is a way to present a large amount of information visually and interactively.
+The goal is to compress complex data or long reports into clear, explorable tools that let
+the user move at their own pace.
+
+Row {data-height=300}
+-------------------------------------
+
+### When is a dashboard the right choice?
+
+Dashboards are especially useful when collaborators need to explore results that
+would be difficult to present in a static figure, table, or report:
+
+- **Exploratory analysis** — collaborators can compare pathogen prevalence by
+  study, case definition, or age group without rerunning the analysis in R.
+- **Tracking changes over time** — a dashboard can show enrollment counts, data
+  completeness, or prevalence estimates as new sites contribute data, provided
+  it is refreshed when the data change.
+- **Many combinations of results** — a single figure or table becomes hard to
+  read when it includes every site, outcome, and analysis setting. A dashboard
+  lets users select the combinations they want to examine.
+- **Sharing with non-R users** — collaborators can explore the dashboard in a
+  web browser without knowing how to use R.
+
+### Dashboards look fancy, but the tools are familiar
+
+A flexdashboard is an R Markdown document that arranges a collection of figures, tables, and text into an interactive layout. If you’ve made figures in an R Markdown report, you already have the skills to start making a dashboard.
+
+### {data-width=180}
+
+```{r}
+# knitr::image_uri() base64-encodes the GIF so it is embedded directly in the
+# HTML file — no external file path needed after knitting.
+gif_path <- "figures/duck_dance.gif"
+if (file.exists(gif_path)) {
+  knitr::asis_output(
+    paste0('<img src="', knitr::image_uri(gif_path),
+           '" style="max-width:100%;max-height:180px;display:block;margin:auto;">')
+  )
+} else {
+  cat("*Place duck_dance.gif in the figures/ folder*")
+}
+```
+
+Row {data-height=325}
+-------------------------------------
+
+### A note on terminology
+
+Not every dashboard made in R is an **R Shiny dashboard**. Shiny is a tool that lets a dashboard respond to user inputs by running R code, but you can build layouts, tabs, and interactive figures without it.
+
+In this example, we’ll use the **flexdashboard** package. Part 1 builds a **flexdashboard** without Shiny; Part 2 adds Shiny to let users change the results displayed.
+
+### Packages used 
+
+```r
+install.packages(c("flexdashboard", "ggplot2", "plotly", "DT", "dplyr", "scales"))
+```
+
+| Package | Role |
+|---|---|
+| `flexdashboard` | Dashboard layout, `valueBox`, `gauge` |
+| `ggplot2` | Static figures |
+| `plotly` | Interactive figures (hover, zoom) — no Shiny needed |
+| `DT` | Interactive tables (sort, filter) — no Shiny needed |
+| `dplyr` | Data manipulation |
+| `scales` | `percent()`, `comma()` formatting in labels and tooltips |
+
+
+Getting Started {data-icon="fa-play"}
+=====================================
+
+Row {data-height=100}
+-------------------------------------
+
+### How to create a new flexdashboard
+
+In RStudio: **File → New File → R Markdown → From Template → Flex Dashboard**.
+This creates a starter `.Rmd` file with the YAML header already filled in.
+Click **Knit** and RStudio renders it to a self-contained HTML file.
+
+Row {data-height=550}
+-------------------------------------
+
+### The YAML header — this file's actual header
+
+The YAML block at the top of the `.Rmd` controls the dashboard's appearance and
+behavior. Here is the header for this file:
+
+```yaml
+---
+title: "flexdashboard — Part 1: Static Dashboards"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows      # rows (default) or columns
+    vertical_layout: scroll  # scroll or fill (see below)
+    theme: flatly          # 'Bootstrap' theme
+    navbar:
+      - { title: "Open the .Rmd source alongside this", align: right }
+---
+```
+
+**`orientation`** — how boxes are arranged within a page:
+
+- `rows` (this dashboard): boxes stack top to bottom. Control height with `data-height`.
+- `columns`: boxes sit side by side. Control width with `data-width`.
+
+**`vertical_layout`** — whether the page scrolls:
+
+- `scroll` (this dashboard): each row gets its stated height; the page scrolls naturally.
+- `fill`: all rows stretch to fill the browser window — good for single-screen monitoring.
+
+**`theme`** — sets a 'Bootstrap' (web design) theme. Options: `default`, `flatly`, `darkly`, `cosmo`,
+`bootstrap`, `journal`, `united`, `lumen`, `readable`, `sandstone`, `simplex`,
+`spacelab`, `superhero`, `yeti`.
+
+### What Knit produces
+
+When you click **Knit**, R runs every code chunk **once** and bakes all output into a
+single **self-contained `.html` file** that:
+
+- Opens in any web browser with no R, no internet, and no server needed
+- Can be emailed as an attachment or hosted on GitHub Pages
+- Has all data, figures, and JavaScript embedded inside it
+
+**The interactive features on later tabs — plotly hover, DT column filters — are embedded
+JavaScript running in the browser. They are not calling R.**
+
+Row {data-height=250}
+-------------------------------------
+
+### What "self-contained" means 
+
+A self-contained dashboard packages the HTML, figures, and resources needed to display the page into one file. It’s easy to share, but data included in plots or tables may be extractable from the HTML. Don’t use it to share individual-level patient data or other results that viewers should not be able to access.
+
+Static dashboards also have practical size limits. Many large Plotly figures can make a static dashboard slow to open. A Shiny dashboard can calculate and display results as users request them, instead of embedding every result upfront.
+
+### When static is better than Shiny
+
+| Static (this file) | Shiny (Part 2) |
+|---|---|
+| Single `.html` file — email it | Needs a running R session |
+| No server or deployment needed | Requires shinyapps.io or Posit Connect |
+| Loads instantly | Loads when server responds |
+| Plotly hover and DT sort work | Full reactive filtering works |
+| Fixed at knit time | Updates when inputs change |
+| Fine for small/medium data | Better for large or sensitive data |
+
+
+Syntax {data-icon="fa-code"}
+=====================================
+
+Row {data-height=100}
+-------------------------------------
+
+### flexdashboard syntax is R Markdown with three extra heading levels
+
+You already know R Markdown: `#`, `##`, `###` for headings. flexdashboard gives special
+meaning to the underline-style headings (`====` and `----`) that Markdown also supports.
+
+Row {data-height=450}
+-------------------------------------
+
+### The three structural levels
+
+The three levels in the source `.Rmd` look like this:
+
+```markdown
+# PAGE — level-1 heading underlined with ====
+Pathogen Prevalence {data-icon="fa-chart-bar"}
+=====================================
+
+# ROW — level-2 heading underlined with ----
+Row {data-height=200}
+-------------------------------------
+
+# BOX — level-3 heading with ###
+### Attributable prevalence of each pathogen
+```
+
+Then a code chunk inside the box:
+
+```r
+# Your R code here — a ggplot, DT table, valueBox, or plain text
+# The output fills the box automatically
+```
+
+The hierarchy is always: **Page → Row → Box**. This is the exact structure
+used in the real co-etiology dashboard.
+
+### Row and column options
+
+Control size by adding attributes to row or column headings:
+
+```markdown
+Row {data-height=300}        # height in pixels (rows layout)
+-------------------------------------
+
+Column {data-width=400}      # width in pixels (columns layout)
+-------------------------------------
+```
+
+Add `{.tabset}` to turn boxes in a row into sub-tabs:
+
+```markdown
+Row {.tabset}
+-------------------------------------
+
+### Age distribution
+### HAZ distribution
+### Co-etiology subsets
+```
+
+Row {.tabset data-height=350}
+-------------------------------------
+
+### Box attributes
+
+| Attribute | Effect |
+|---|---|
+| `{data-icon="fa-chart-bar"}` | Font Awesome icon in the navbar tab |
+| `{data-height=300}` | Row height in pixels |
+| `{data-width=400}` | Box width in pixels (columns layout) |
+| `{.no-title}` | Hides the box title bar |
+| `{data-padding=10}` | Inner padding in pixels |
+| `{.tabset}` | Turns boxes in this row into sub-tabs |
+
+### Self-demonstration: this page's own row heights
+
+Open the `.Rmd` source and find this page. You will see:
+
+```markdown
+Row {data-height=100}    ← the short intro banner at the top
+-------------------------------------
+
+Row {data-height=360}    ← the taller row with two boxes
+-------------------------------------
+
+Row {data-height=280}    ← this row
+-------------------------------------
+```
+
+The numbers are pixels. With `vertical_layout: scroll`, each row renders at that stated
+height and the page scrolls between them. Compare the narrow 100px row at the top of this
+page with the 450px row above this one.
+
+
+Value Boxes & Gauges {data-icon="fa-tachometer-alt"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Highlighting key numbers from the IPD data
+
+`valueBox()` and `gauge()` are built into `flexdashboard` — no Shiny needed. They are
+ideal for headline summaries like total enrollment, study count, or prevalence.
+
+Row {data-height=130}
+-------------------------------------
+
+### Total cases
+
+```{r}
+valueBox(
+  value   = nrow(ipd_data),
+  caption = "Cases across all five studies",
+  icon    = "fa-users",
+  color   = "primary"
+)
+```
+
+### MSD cases
+
+```{r}
+valueBox(
+  value   = sum(ipd_data$MSD == 1),
+  caption = "Moderate-to-severe diarrhea",
+  icon    = "fa-hospital",
+  color   = "warning"
+)
+```
+
+### Studies
+
+```{r}
+valueBox(
+  value   = length(unique(ipd_data$study)),
+  caption = "Contributing studies",
+  icon    = "fa-globe",
+  color   = "info"
+)
+```
+
+### Shigella attributable
+
+```{r}
+shig_prev <- mean(ipd_data$shigella_tac_attr == 1, na.rm = TRUE)
+valueBox(
+  value   = percent(shig_prev, accuracy = 0.1),
+  caption = "Shigella attributable prevalence",
+  icon    = "fa-flask",
+  color   = "success"
+)
+```
+
+Row {data-height=350}
+-------------------------------------
+
+### valueBox code
+
+One `valueBox()` per `###` box. The four boxes above share the row width equally.
+
+```r
+# color: "primary" / "success" / "info" / "warning" / "danger"
+# or any hex color: color = "#00468B"
+# icon: any Font Awesome name, e.g. "fa-users", "fa-flask", "fa-globe"
+
+valueBox(
+  value   = nrow(ipd_data),
+  caption = "Cases across all five studies",
+  icon    = "fa-users",
+  color   = "primary"
+)
+```
+
+### Gauge: follow-up completeness
+
+```{r}
+gauge(
+  value = 84,
+  min   = 0,
+  max   = 100,
+  label = "% 90-day follow-up complete",
+  gaugeSectors(
+    success = c(85, 100),
+    warning = c(60, 84),
+    danger  = c(0,  59)
+  )
+)
+```
+
+### Gauge code
+
+```r
+gauge(
+  value = 84,                        # current value
+  min   = 0,
+  max   = 100,
+  label = "% 90-day follow-up complete",
+  gaugeSectors(
+    success = c(85, 100),            # green band
+    warning = c(60, 84),             # orange band
+    danger  = c(0,  59)              # red band
+  )
+)
+```
+
+84 falls in the warning band (60–84) so it renders orange. Without `gaugeSectors()` the
+gauge uses the theme's default success color regardless of value.
+
+
+Static ggplot {data-icon="fa-chart-area"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### ggplot figures embed directly — write them in a code chunk exactly as you normally would
+
+A ggplot inside a flexdashboard code chunk works exactly like one in any other R Markdown
+document. R renders it to PNG at knit time and embeds it in the HTML. Fixed — no hover,
+no zoom. Use `ggplotly()` on the next tab to add that.
+
+Row {data-height=440}
+-------------------------------------
+
+### Attributable prevalence by pathogen — all studies combined
+
+```{r fig.height=4.5}
+prev_df <- data.frame(
+  pathogen = PATHOGENS,
+  label    = pathogen_labels[PATHOGENS],
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    n_attr  = sapply(PATHOGENS, function(p)
+                     sum(ipd_data[[paste0(p, "_tac_attr")]] == 1, na.rm = TRUE)),
+    n_total = nrow(ipd_data),
+    rate    = n_attr / n_total
+  ) %>%
+  arrange(desc(rate)) %>%
+  mutate(label = factor(label, levels = rev(label)))
+
+ggplot(prev_df, aes(x = label, y = rate)) +
+  geom_col(fill = "#08306B", alpha = 0.82, width = 0.65) +
+  geom_text(aes(label = percent(rate, accuracy = 0.1)),
+            hjust = -0.1, size = 3.5, color = "gray20") +
+  scale_y_continuous(labels = percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.15))) +
+  coord_flip() +
+  labs(
+    title    = "Attributable prevalence by pathogen",
+    subtitle = paste0("All cases — all five studies  |  n = ", nrow(ipd_data)),
+    x        = NULL,
+    y        = "Attributable prevalence"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid.minor   = element_blank(),
+        panel.grid.major.y = element_blank())
+```
+
+### Prevalence by pathogen and study — faceted
+
+```{r fig.height=4.5}
+prev_by_study <- expand.grid(
+  pathogen = PATHOGENS,
+  study    = STUDIES,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    label = pathogen_labels[pathogen],
+    rate  = mapply(function(p, s) {
+      sub <- ipd_data[ipd_data$study == s, ]
+      mean(sub[[paste0(p, "_tac_attr")]] == 1, na.rm = TRUE)
+    }, pathogen, study)
+  )
+
+# Show top 6 pathogens to keep the facet readable
+top6 <- prev_df$pathogen[1:6]
+
+prev_by_study %>%
+  filter(pathogen %in% top6) %>%
+  mutate(label = factor(label,
+                         levels = pathogen_labels[top6])) %>%
+  ggplot(aes(x = study, y = rate, fill = study)) +
+  geom_col(alpha = 0.85, width = 0.7) +
+  scale_fill_manual(values = study_colors) +
+  scale_y_continuous(labels = percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.12))) +
+  facet_wrap(~ label, ncol = 3) +
+  labs(
+    title    = "Attributable prevalence by study — top 6 pathogens",
+    subtitle = "Each panel is one pathogen; bars are studies",
+    x        = NULL,
+    y        = "Attributable prevalence",
+    fill     = "Study"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position    = "bottom",
+        panel.grid.minor   = element_blank(),
+        panel.grid.major.x = element_blank(),
+        strip.text         = element_text(face = "bold"))
+```
+
+Row {data-height=420}
+-------------------------------------
+
+### Age distribution by Shigella attribution status
+
+```{r fig.height=4}
+age_df <- ipd_data %>%
+  filter(MSD == 1) %>%
+  mutate(status = case_when(
+    shigella_tac_attr == 1                        ~ "Attributable",
+    shigella_bin == 1 & shigella_tac_attr == 0   ~ "Detected (not attributable)",
+    TRUE                                      ~ "Not detected"
+  ))
+
+attr_colors <- c(
+  "Attributable"               = "#00468B",
+  "Detected (not attributable)"= "#ED0000",
+  "Not detected"               = "#ADB6B6"
+)
+
+ggplot(age_df, aes(x = age, fill = status, color = status)) +
+  geom_density(alpha = 0.40, linewidth = 0.8) +
+  scale_fill_manual(values  = attr_colors) +
+  scale_color_manual(values = attr_colors) +
+  scale_x_continuous(breaks = seq(0, 60, 6), limits = c(0, 60)) +
+  labs(
+    title    = "Age distribution by Shigella attribution status",
+    subtitle = "MSD cases — all studies combined",
+    x        = "Age (months)",
+    y        = "Density",
+    fill     = NULL, color = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position  = "bottom",
+        panel.grid.minor = element_blank())
+```
+
+### How faceting replaces filtering in a static dashboard
+
+Faceting splits one plot across all levels of a grouping variable at knit time. It is
+the static equivalent of a reactive filter dropdown — the user sees all groups at once
+rather than choosing one.
+
+```r
+# Show the age distribution faceted by study instead of filtered to one study
+ggplot(age_df, aes(x = age, fill = status, color = status)) +
+  geom_density(alpha = 0.40) +
+  facet_wrap(~ study, ncol = 3) +    # one panel per study
+  scale_x_continuous(limits = c(0, 60)) +
+  theme_minimal()
+```
+
+If you want the user to **choose** which study to display rather than seeing all five
+at once, that requires Shiny. Part 2 shows exactly how the real dashboard implements
+that pattern.
+
+
+Plotly & DT {data-icon="fa-mouse-pointer"}
+=====================================
+
+Row {data-height=100}
+-------------------------------------
+
+### Interactivity without Shiny — htmlwidgets run in the browser after knitting
+
+`plotly` and `DT` are **htmlwidgets**: they embed their own JavaScript in the knitted HTML.
+Hover tooltips, zoom, sort, and column filters all run in the browser with no R session.
+This is exactly how the static portions of the real co-etiology dashboard work.
+
+Row {data-height=460}
+-------------------------------------
+
+### plotly — attributable prevalence bar chart with hover
+
+```{r}
+p <- ggplot(prev_df,
+            aes(x    = label,
+                y    = rate,
+                text = paste0(label,
+                              "\n", percent(rate, accuracy = 0.1),
+                              "  (n = ", n_attr, " / ", n_total, ")"))) +
+  geom_col(fill = "#08306B", alpha = 0.80, width = 0.65) +
+  geom_text(aes(label = percent(rate, accuracy = 0.1)),
+            hjust = -0.1, size = 3.5, color = "gray20") +
+  scale_y_continuous(labels = percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.15))) +
+  coord_flip() +
+  labs(
+    title    = "Hover over any bar for exact counts",
+    subtitle = paste0("All cases  |  n = ", nrow(ipd_data)),
+    x        = NULL,
+    y        = "Attributable prevalence"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid.minor   = element_blank(),
+        panel.grid.major.y = element_blank())
+
+ggplotly(p, tooltip = "text") %>%
+  layout(margin = list(l = 150))
+```
+
+### How this matches the real dashboard
+
+This is structurally identical to the Pathogen Prevalence tab in the real dashboard:
+
+```r
+# 1. Compute prevalence as a sorted data frame
+prev_df <- data.frame(
+  label   = pathogen_labels[PATHOGENS],
+  n_attr  = sapply(PATHOGENS, function(p)
+                     sum(d[[paste0(p, "_tac_attr")]] == 1, na.rm = TRUE)),
+  n_total = nrow(d)
+) %>%
+  mutate(rate = n_attr / n_total) %>%
+  arrange(desc(rate)) %>%
+  mutate(label = factor(label, levels = rev(label)))
+
+# 2. Build ggplot with a text aesthetic for the tooltip
+p <- ggplot(prev_df,
+            aes(x = label, y = rate,
+                text = paste0(label, "\n",
+                              percent(rate, 0.1),
+                              "  (n=", n_attr, "/", n_total, ")"))) +
+  geom_col(fill = "#08306B", alpha = 0.80) +
+  coord_flip() +
+  scale_y_continuous(labels = percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.15))) +
+  theme_minimal()
+
+# 3. One call wraps the whole thing in plotly
+ggplotly(p, tooltip = "text") %>%
+  layout(margin = list(l = 150))   # left margin for long pathogen names
+```
+
+Row {data-height=600}
+-------------------------------------
+
+### DT — pathogen prevalence summary by study
+
+```{r}
+# One row per pathogen × study combination — a summary table, not patient rows.
+# Use the Study and Definition column filters to narrow the view.
+summary_df <- expand.grid(
+  Pathogen = pathogen_labels[PATHOGENS],
+  Study    = STUDIES,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    path_key  = PATHOGENS[match(Pathogen, pathogen_labels)],
+    n_cases   = sapply(Study, function(s) sum(ipd_data$study == s)),
+    n_msd     = sapply(Study, function(s) sum(ipd_data$study == s & ipd_data$MSD == 1)),
+    n_attr    = mapply(function(pk, s)
+                  sum(ipd_data[[paste0(pk, "_tac_attr")]] == 1 & ipd_data$study == s,
+                      na.rm = TRUE),
+                  path_key, Study),
+    n_det     = mapply(function(pk, s)
+                  sum(ipd_data[[paste0(pk, "_bin")]] == 1 & ipd_data$study == s,
+                      na.rm = TRUE),
+                  path_key, Study),
+    `Attributable %` = round(100 * n_attr / n_cases, 1),
+    `Detected %`     = round(100 * n_det  / n_cases, 1)
+  ) %>%
+  select(Study, Pathogen, `N cases` = n_cases, `N MSD` = n_msd,
+         `N attributable` = n_attr, `Attributable %`,
+         `N detected` = n_det, `Detected %`)
+
+datatable(
+  summary_df,
+  options  = list(pageLength = 12, scrollX = TRUE, dom = "ftip"),
+  filter   = "top",
+  rownames = FALSE,
+  class    = "compact stripe"
+) %>%
+  formatStyle(
+    "Attributable %",
+    background = styleColorBar(c(0, 30), "#6BAED6"),
+    backgroundSize   = "90% 75%",
+    backgroundRepeat = "no-repeat",
+    backgroundPosition = "center"
+  )
+```
+
+### How DT works
+
+```r
+library(DT)
+
+datatable(
+  summary_df,            # a pre-aggregated data frame, not patient rows
+  options = list(
+    pageLength = 12,     # rows per page
+    scrollX    = TRUE,   # horizontal scroll for wide tables
+    dom        = "ftip"  # f=filter, t=table, i=row info, p=pages
+  ),
+  filter   = "top",      # per-column filter boxes above each column
+  rownames = FALSE,
+  class    = "compact stripe"
+) %>%
+  # styleColorBar adds an inline bar scaled to the column range
+  formatStyle(
+    "Attributable %",
+    background = styleColorBar(c(0, 30), "#6BAED6"),
+    backgroundSize     = "90% 75%",
+    backgroundRepeat   = "no-repeat",
+    backgroundPosition = "center"
+  )
+```
+
+Use the **Study** and **Pathogen** filter boxes at the top of the table to narrow the
+view — filter to a single study, or search for a pathogen by name. The inline colour
+bars on **Attributable %** give a quick visual sense of magnitude without needing a
+separate chart. All of this runs in the browser with the knitted HTML file alone.
+

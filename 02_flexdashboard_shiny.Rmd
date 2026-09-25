@@ -1,0 +1,660 @@
+---
+title: "flexdashboard — Part 2: Adding Shiny"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: flatly
+    navbar:
+      - { title: "Run Document in RStudio — do not Knit", align: right }
+runtime: shiny
+---
+
+```{r global, include=FALSE}
+# Label this chunk "global" — it runs once in the global environment and its
+# objects are shared across all user sessions. This is the official recommendation
+# for loading data in Shiny flexdashboards (see the flexdashboard docs).
+
+library(flexdashboard)
+library(shiny)
+library(ggplot2)
+library(plotly)
+library(DT)
+library(dplyr)
+library(scales)
+
+# ── Load simulated IPD co-etiology data ────────────────────────────────────
+# Run simulate_data.R once before opening this dashboard to create the file.
+#   source("simulate_data.R")
+ipd_data <- readRDS("data/ipd_sim.Rds")
+
+# ── Constants ───────────────────────────────────────────────────────────────
+PATHOGENS <- c(
+  "rotavirus", "norovirus", "adenovirus", "astrovirus", "sapovirus",
+  "st_etec", "shigella", "campylobacter", "tepec",
+  "v_cholerae", "salmonella", "cryptosporidium"
+)
+
+pathogen_labels <- c(
+  rotavirus       = "Rotavirus",
+  norovirus       = "Norovirus GII",
+  adenovirus      = "Adenovirus",
+  astrovirus      = "Astrovirus",
+  sapovirus       = "Sapovirus",
+  st_etec         = "ST-ETEC",
+  shigella        = "Shigella",
+  campylobacter   = "C. jejuni/coli",
+  tepec           = "tEPEC",
+  v_cholerae      = "V. cholerae",
+  salmonella      = "Salmonella",
+  cryptosporidium = "Cryptosporidium"
+)
+
+STUDIES <- c("ABCD", "EFGH", "GEMS", "VIDA", "MALED")
+
+study_colors <- c(
+  ABCD  = "#00468B",
+  EFGH  = "#925E9F",
+  GEMS  = "#42B540",
+  VIDA  = "#0099B4",
+  MALED = "#ED0000"
+)
+
+# ── Shared helper — the filter_base() pattern from the real dashboard ───────
+# A plain R function: easy to read, test, and reuse across tabs.
+# Accepts plain arguments (not reactive values) — called inside reactive().
+filter_base <- function(data, msd_only, study_sel) {
+  d <- data
+  if (msd_only)           d <- filter(d, MSD == 1)
+  if (length(study_sel))  d <- filter(d, study %in% study_sel)
+  d
+}
+
+# Shared ggplot theme — mirrors base_theme() in the real dashboard
+base_theme <- function() {
+  theme_minimal(base_size = 13) +
+    theme(
+      legend.position  = "bottom",
+      panel.grid.minor = element_blank()
+    )
+}
+```
+
+
+Why Shiny? {data-icon="fa-bolt"}
+=====================================
+
+Row {data-height=100}
+-------------------------------------
+
+### Moving from static to reactive
+
+Part 1 showed what you can do without Shiny: ggplot figures, plotly hover, and DT filters
+all embedded in a static HTML file. This tab explains what Shiny adds, when you would need it, and what the trade-offs are.
+
+Row {data-height=350}
+-------------------------------------
+
+### What the static dashboard cannot do
+
+The plotly and DT interactivity in Part 1 let users interact with results that were already computed when you knit the dashboard. **Shiny keeps R running**, so an input can trigger new calculations and update multiple figures or tables at once. For example, users could:
+
+- Filter the data by site, population, or date range
+- Choose an outcome and recalculate a summary
+- Change an analysis setting and redraw several figures
+- Make one selection that updates plots and tables across multiple tabs
+
+Adding `runtime: shiny` lets the dashboard respond to those choices while it runs.
+
+### {data-width=180}
+
+```{r}
+gif_path <- "figures/cluster_fire.gif"
+if (file.exists(gif_path)) {
+  knitr::asis_output(
+    paste0('<img src="', knitr::image_uri(gif_path),
+           '" style="max-width:100%;max-height:180px;display:block;margin:auto;">')
+  )
+} else {
+  cat("*Place cluster_fire.gif in the figures/ folder*")
+}
+```
+
+### What Shiny adds: one line in the YAML
+
+```yaml
+title: "flexdashboard — Part 2: Adding Shiny"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: flatly
+    navbar:
+      - { title: "Run Document in RStudio — do not Knit", align: right }
+runtime: shiny # <----- add this line
+```
+
+By specifying **runtime: shiny**, the dashboard is no longer a document that knits to a file.
+It is an **interactive document** that needs a live R session to run. R stays open,
+listens for user input, and re-executes code when inputs change.
+
+Row {data-height=400}
+-------------------------------------
+
+### The trade-off: file vs. application
+
+| Static flexdashboard (Part 1) | Shiny flexdashboard (Part 2) |
+|---|---|
+| Knit → single `.html` file | Run Document → live application |
+| No server needed to open | Needs R running: locally or deployed |
+| Email as an attachment | Share a URL (Posit Connect) |
+| All data baked into the file | Data stays on the server |
+| Fixed at knit time | Re-runs R code when inputs change |
+| Fine for small/medium data | Better for large or sensitive data |
+| Data visible in page source | Data never leaves the server |
+
+### How to run and deploy
+
+**Locally** — click **Run Document** in RStudio (not Knit). The dashboard opens in a
+browser window and stays live while your RStudio session is open.
+
+**Posit Connect Cloud** — is the recommended platform for new deployments. To publish from the R console:
+
+```r
+install.packages("rsconnect")       # once
+rsconnect::connectCloudUser()        # once; opens a browser to authorize access
+rsconnect::deployApp()               # run from the dashboard's folder
+```
+
+You can also publish using the Publish button in RStudio. Connect Cloud has a free plan, but content on that plan is public; use an approved private hosting option for sensitive data. 
+
+Shiny Concepts {data-icon="fa-cogs"}
+=====================================
+
+Column {data-width=350}
+-------------------------------------
+
+### 1. The user makes a selection
+
+Shiny inputs are controls such as dropdowns, checkboxes, and sliders. Each has
+an **ID** that you use to read its current value in R.
+
+```r
+selectInput("study",    # input id
+            "Study:",   # label
+            choices = c("Study A", "Study B", "Study C"))
+```
+
+If the user selects Study B, `input$study` has the value `"Study B"`.
+
+Column {data-width=350}
+-------------------------------------
+
+### 2. R prepares the selected data
+
+`reactive()` defines a calculation that can change when its inputs change.
+Here, `selected_data()` means “filter the data to the currently selected study.”
+
+```r
+selected_data <- reactive({
+  data |>
+    dplyr::filter(study == input$study)
+})
+```
+
+Shiny sees that this calculation depends on `input$study`. If the user selects
+another study, Shiny marks the old result as out of date and calculates the new
+one when it is needed.
+
+The `()` matter: **`selected_data()` gets the current result** of the reactive
+calculation.
+
+Column {data-width=400}
+-------------------------------------
+
+### 3. The dashboard displays a result
+
+A `render*()` function creates an output. This plot uses the currently
+selected data:
+
+```r
+renderPlot({
+  ggplot(selected_data(), aes(x = age)) +
+    geom_histogram()
+})
+```
+
+When `input$study` changes, `selected_data()` changes, so Shiny redraws this
+plot. A table or count that also uses `selected_data()` would update too.
+
+| Function | Creates |
+|---|---|
+| `renderPlot()` | R plot, including ggplot |
+| `renderPlotly()` | Interactive Plotly plot |
+| `renderDT()` | DT table |
+| `renderText()` | Updating text |
+
+Shiny follows the dependencies in the code: changing an unrelated input
+does not recalculate `selected_data()`.
+
+Example 1: Pathogen Prevalence {data-icon="fa-chart-bar"}
+=====================================
+
+Column {.sidebar}
+-------------------------------------
+
+### Filters
+
+```{r}
+checkboxInput("pprev_msd_only",
+              "MSD cases only",
+              value = TRUE)
+
+checkboxGroupInput("pprev_studies",
+                   "Studies:",
+                   choices  = STUDIES,
+                   selected = STUDIES,
+                   inline   = TRUE)
+```
+
+This tab displays **Pathogen Prevalence**. The sidebar
+(`{.sidebar}` column) contains inputs on the left, with output
+filling the remaining width of the page. Change either filter and watch the chart update.
+
+Row {data-height=50}
+-------------------------------------
+
+### Attributable prevalence — change the filters on the left
+
+Row {data-height=600}
+-------------------------------------
+
+### Prevalence chart
+
+```{r}
+pprev_data <- reactive({
+  filter_base(ipd_data, input$pprev_msd_only, input$pprev_studies)
+})
+
+renderPlotly({
+  d <- pprev_data()
+  req(nrow(d) > 0)
+
+  prev_df <- data.frame(
+    pathogen = PATHOGENS,
+    label    = pathogen_labels[PATHOGENS],
+    n_total  = nrow(d),
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(
+      n_attr = sapply(PATHOGENS, function(p)
+                      sum(d[[paste0(p, "_tac_attr")]] == 1, na.rm = TRUE)),
+      rate   = n_attr / n_total
+    ) %>%
+    arrange(desc(rate)) %>%
+    mutate(label = factor(label, levels = rev(label)))
+
+  p <- ggplot(prev_df,
+              aes(x    = label,
+                  y    = rate,
+                  text = paste0(label,
+                                "\n", percent(rate, accuracy = 0.1),
+                                "  (n = ", n_attr, " / ", n_total, ")"))) +
+    geom_col(fill = "#08306B", alpha = 0.80, width = 0.65) +
+    geom_text(aes(label = percent(rate, accuracy = 0.1)),
+              hjust = -0.1, size = 3.5, color = "gray20") +
+    scale_y_continuous(labels = percent_format(accuracy = 1),
+                       expand = expansion(mult = c(0, 0.15))) +
+    coord_flip() +
+    labs(x        = NULL,
+         y        = "Attributable prevalence",
+         subtitle = paste0("n = ", nrow(d))) +
+    base_theme() +
+    theme(panel.grid.major.y = element_blank())
+
+  ggplotly(p, tooltip = "text") %>%
+    layout(margin = list(l = 150))
+})
+```
+
+### Shiny controls in this example
+
+**Sidebar layout:** `{.sidebar}` puts the controls beside the chart.
+
+```markdown
+Column {.sidebar}
+-------------------------------------
+```
+
+**One on/off choice:** `checkboxInput()` returns `TRUE` or `FALSE`.
+
+```r
+checkboxInput("pprev_msd_only", "MSD cases only", value = TRUE)
+# Read its value with input$pprev_msd_only
+```
+
+**Several choices:** `checkboxGroupInput()` returns a vector of the selected
+studies.
+
+```r
+checkboxGroupInput("pprev_studies", "Studies:",
+                   choices = STUDIES, selected = STUDIES)
+# Read the selections with input$pprev_studies
+```
+
+The selected values feed into `pprev_data()`, which the chart uses:
+
+```r
+pprev_data <- reactive({
+  filter_base(ipd_data, input$pprev_msd_only, input$pprev_studies)
+})
+
+renderPlotly({
+  d <- pprev_data()
+  # Build the chart using d
+})
+```
+
+
+Example 2: Co-infection Prevalence {data-icon="fa-chart-bar"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Among cases attributable to one pathogen, how often are others present?
+
+Row {data-height=200}
+-------------------------------------
+
+### Controls {data-width=320}
+
+```{r}
+inputPanel(
+  selectInput("coinf_index", "Primary pathogen:",
+              choices  = setNames(PATHOGENS, pathogen_labels),
+              selected = "shigella"),
+
+  radioButtons("coinf_def", "Co-infection definition:",
+               choices  = c("Attributable" = "tac_attr",
+                            "Any detection" = "bin"),
+               selected = "tac_attr",
+               inline   = TRUE),
+
+  checkboxInput("coinf_msd_only", "MSD cases only", value = TRUE),
+
+  checkboxGroupInput("coinf_studies", "Studies:",
+                     choices  = STUDIES,
+                     selected = STUDIES,
+                     inline   = TRUE)
+)
+```
+
+Row {data-height=800}
+-------------------------------------
+
+### Co-infection rates among index-pathogen cases {data-width=600}
+
+```{r}
+index_cases <- reactive({
+  d   <- filter_base(ipd_data, input$coinf_msd_only, input$coinf_studies)
+  col <- paste0(input$coinf_index, "_tac_attr")
+  req(col %in% names(d))
+  filter(d, .data[[col]] == 1)
+})
+
+renderPlotly({
+  d       <- index_cases()
+  req(nrow(d) > 0)
+
+  ip      <- input$coinf_index
+  copaths <- setdiff(PATHOGENS, ip)
+  suffix  <- input$coinf_def        # "tac_attr" or "bin"
+
+  coinf_df <- data.frame(
+    pathogen = copaths,
+    label    = pathogen_labels[copaths],
+    n_index  = nrow(d),
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(
+      n    = sapply(copaths, function(cp)
+                   sum(d[[paste0(cp, "_", suffix)]] == 1, na.rm = TRUE)),
+      rate = n / n_index
+    ) %>%
+    arrange(rate) %>%
+    mutate(label = factor(label, levels = label))
+
+  p <- ggplot(coinf_df,
+              aes(x    = label,
+                  y    = rate,
+                  text = paste0(label,
+                                "\n", percent(rate, accuracy = 0.1),
+                                "  (n = ", n, " / ", n_index, ")"))) +
+    geom_col(fill = "#6BAED6", alpha = 0.85, width = 0.65) +
+    geom_text(aes(label = percent(rate, accuracy = 0.1)),
+              hjust = -0.1, size = 3.5) +
+    scale_y_continuous(labels = percent_format(accuracy = 1),
+                       expand = expansion(mult = c(0, 0.15))) +
+    coord_flip() +
+    labs(x        = NULL,
+         y        = "Co-infection rate",
+         subtitle = paste0("Among attributable ", pathogen_labels[ip],
+                           " cases  |  n = ", nrow(d))) +
+    base_theme() +
+    theme(panel.grid.major.y = element_blank())
+
+  ggplotly(p, tooltip = "text") %>%
+    layout(margin = list(l = 150))
+})
+```
+
+### Shiny controls in this example
+
+**Dropdown:** `selectInput()` lets the user choose one primary pathogen.
+
+```r
+selectInput("coinf_index", "Primary pathogen:",
+            choices = setNames(PATHOGENS, pathogen_labels),
+            selected = "shigella")
+# Selected value: input$coinf_index
+```
+
+**Radio buttons:** `radioButtons()` lets the user choose one definition. The
+labels appear on the page; `"tac_attr"` or `"bin"` is passed to R.
+
+```r
+radioButtons("coinf_def", "Co-infection definition:",
+             choices = c("Attributable" = "tac_attr",
+                         "Any detection" = "bin"))
+# Selected value: input$coinf_def
+```
+
+These selections affect different parts of the chart code:
+
+```r
+index_cases <- reactive({
+  # Uses input$coinf_index to choose the primary pathogen's cases
+})
+
+renderPlotly({
+  d <- index_cases()
+  suffix <- input$coinf_def
+  # Uses suffix to choose which co-infection rates to plot
+})
+```
+
+Changing the primary pathogen updates `index_cases()` and the chart. Changing
+the definition updates the chart without needing to recalculate `index_cases()`.
+
+
+Example 3: Age Distribution {data-icon="fa-chart-area"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### How does age at presentation vary by attribution status? — mirrors the real Age Distributions tab
+
+Row {data-height=200}
+-------------------------------------
+
+### Controls {data-width=320}
+
+```{r}
+inputPanel(
+  selectInput("age_pathogen", "Pathogen:",
+              choices  = setNames(PATHOGENS, pathogen_labels),
+              selected = "shigella"),
+
+  checkboxInput("age_msd_only", "MSD cases only", value = TRUE),
+
+  checkboxGroupInput("age_studies", "Studies:",
+                     choices  = STUDIES,
+                     selected = STUDIES,
+                     inline   = TRUE),
+
+  checkboxInput("age_show_attr",    "Attributable",               value = TRUE),
+  checkboxInput("age_show_nonattr", "Detected (not attributable)", value = TRUE),
+  checkboxInput("age_show_nodet",   "Not detected",                value = FALSE),
+
+  sliderInput("age_bw", "Density bandwidth:",
+              min = 0.3, max = 3, value = 1, step = 0.1)
+)
+```
+
+Row {data-height=525}
+-------------------------------------
+
+### Age density by attribution status
+
+```{r}
+# age_subset() classifies cases and is shared by BOTH plots on this tab.
+# The pathogen dropdown triggers both plots to update together.
+age_subset <- reactive({
+  d  <- filter_base(ipd_data, input$age_msd_only, input$age_studies)
+  ip <- input$age_pathogen
+  ac <- paste0(ip, "_tac_attr")
+  dc <- paste0(ip, "_bin")
+  req(all(c(ac, dc) %in% names(d)))
+
+  d %>%
+    mutate(age_group = case_when(
+      .data[[ac]] == 1                    ~ "Attributable",
+      .data[[dc]] == 1 & .data[[ac]] == 0 ~ "Detected (not attributable)",
+      TRUE                                ~ "Not detected"
+    ))
+})
+
+renderPlotly({
+  d <- age_subset()
+
+  groups_show <- c(
+    if (input$age_show_attr)    "Attributable",
+    if (input$age_show_nonattr) "Detected (not attributable)",
+    if (input$age_show_nodet)   "Not detected"
+  )
+  d <- filter(d, age_group %in% groups_show)
+  req(nrow(d) > 0)
+
+  attr_colors <- c(
+    "Attributable"               = "#00468B",
+    "Detected (not attributable)"= "#ED0000",
+    "Not detected"               = "#ADB6B6"
+  )
+
+  p <- ggplot(d, aes(x = age, fill = age_group, color = age_group)) +
+    geom_density(alpha = 0.45, adjust = input$age_bw, linewidth = 0.8) +
+    scale_fill_manual(values  = attr_colors) +
+    scale_color_manual(values = attr_colors) +
+    scale_x_continuous(breaks = seq(0, 60, 6), limits = c(0, 60)) +
+    labs(x        = "Age (months)",
+         y        = "Density",
+         fill     = NULL, color = NULL,
+         subtitle = pathogen_labels[input$age_pathogen]) +
+    base_theme()
+
+  ggplotly(p) %>%
+    layout(legend = list(orientation = "h", y = -0.2))
+})
+```
+
+### Shiny controls in this example
+
+**Checkboxes can control what appears in a plot.** Each checkbox has its own
+`TRUE` or `FALSE` value:
+
+```r
+checkboxInput("age_show_attr", "Attributable", value = TRUE)
+checkboxInput("age_show_nonattr", "Detected (not attributable)", value = TRUE)
+checkboxInput("age_show_nodet", "Not detected", value = FALSE)
+```
+
+The density plot reads those values to decide which groups to display:
+
+```r
+groups_show <- c(
+  if (input$age_show_attr)    "Attributable",
+  if (input$age_show_nonattr) "Detected (not attributable)",
+  if (input$age_show_nodet)   "Not detected"
+)
+```
+
+**Slider:** `sliderInput()` supplies a number that the plot can use directly.
+
+```r
+sliderInput("age_bw", "Density bandwidth:",
+            min = 0.3, max = 3, value = 1, step = 0.1)
+
+geom_density(adjust = input$age_bw)
+```
+
+The pathogen and study selections are used by `age_subset()`, which supplies
+data to both figures. The group checkboxes and bandwidth slider are used only
+by the density plot.
+
+Row {data-height=480}
+-------------------------------------
+
+### Proportion attributable by 6-month age bin
+
+```{r}
+renderPlotly({
+  d <- age_subset()
+
+  attr_colors <- c(
+    "Attributable"               = "#00468B",
+    "Detected (not attributable)"= "#ED0000",
+    "Not detected"               = "#ADB6B6"
+  )
+
+  bin_df <- d %>%
+    mutate(age_bin = cut(age, breaks = seq(0, 60, 6),
+                         include.lowest = TRUE, right = FALSE)) %>%
+    filter(!is.na(age_bin)) %>%
+    group_by(age_bin, age_group) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(age_bin) %>%
+    mutate(pct = n / sum(n))
+
+  p <- ggplot(bin_df,
+              aes(x    = age_bin,
+                  y    = pct,
+                  fill = age_group,
+                  text = paste0(age_group, ": ",
+                                percent(pct, accuracy = 0.1),
+                                "  (n = ", n, ")"))) +
+    geom_col(position = "fill", width = 0.85) +
+    scale_y_continuous(labels = percent_format()) +
+    scale_fill_manual(values = attr_colors) +
+    labs(x    = "Age bin (months)",
+         y    = "Proportion",
+         fill = NULL) +
+    base_theme() +
+    theme(axis.text.x = element_text(angle = 35, hjust = 1))
+
+  ggplotly(p, tooltip = "text") %>%
+    layout(legend = list(orientation = "h", y = -0.3))
+})
+```
+

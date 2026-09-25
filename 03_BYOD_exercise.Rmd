@@ -1,0 +1,802 @@
+---
+title: "BYOD: Build Your Own Dashboard"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: flatly
+    navbar:
+      - { title: "Replace the TODOs — then make it yours", align: right }
+runtime: shiny
+---
+
+```{r global, include=FALSE}
+# ── Packages ───────────────────────────────────────────────────────────────
+library(flexdashboard)
+library(shiny)
+library(ggplot2)
+library(plotly)
+library(DT)
+library(dplyr)
+library(scales)
+
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 0 — LOAD YOUR DATA
+#
+# The placeholder loads the simulated IPD co-etiology dataset created by
+# simulate_data.R. Run that script once before opening this dashboard:
+#   source("simulate_data.R")
+#
+# To swap in your own data:
+#   1. Replace the readRDS() line with your own file path
+#   2. Keep the name my_data
+#   3. Update PATHOGENS, pathogen_labels, and STUDIES below to match
+# ══════════════════════════════════════════════════════════════════════════
+my_data <- readRDS("data/ipd_sim.Rds")
+
+# ── Constants — update these if using your own data ─────────────────────────
+PATHOGENS <- c(
+  "rotavirus", "norovirus", "adenovirus", "astrovirus", "sapovirus",
+  "st_etec", "shigella", "campylobacter", "tepec",
+  "v_cholerae", "salmonella", "cryptosporidium"
+)
+
+pathogen_labels <- c(
+  rotavirus       = "Rotavirus",
+  norovirus       = "Norovirus GII",
+  adenovirus      = "Adenovirus",
+  astrovirus      = "Astrovirus",
+  sapovirus       = "Sapovirus",
+  st_etec         = "ST-ETEC",
+  shigella        = "Shigella",
+  campylobacter   = "C. jejuni/coli",
+  tepec           = "tEPEC",
+  v_cholerae      = "V. cholerae",
+  salmonella      = "Salmonella",
+  cryptosporidium = "Cryptosporidium"
+)
+
+STUDIES <- c("ABCD", "EFGH", "GEMS", "VIDA", "MALED")
+
+# ── Shared filter helper ────────────────────────────────────────────────────
+filter_base <- function(data, msd_only, study_sel) {
+  d <- data
+  if (msd_only)           d <- filter(d, MSD == 1)
+  if (length(study_sel))  d <- filter(d, study %in% study_sel)
+  d
+}
+
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 0b — UPDATE IF USING YOUR OWN DATA
+# ══════════════════════════════════════════════════════════════════════════
+numeric_cols     <- c("age", "enr_haz")
+categorical_cols <- c("study", "MSD")
+```
+
+
+Instructions {data-icon="fa-info-circle"}
+=====================================
+
+Row {data-height=100}
+-------------------------------------
+
+### BYOD — Build Your Own Dashboard
+
+Work through the tabs in order. Each tab has one exercise. Look for `# TODO` blocks
+and `"TODO: ..."` placeholder text — replace them with real code and labels for
+your data. Click **Run Document** after each change to see the result.
+
+### {data-width=180}
+
+```{r}
+gif_path <- "figures/duck_dance.gif"
+if (file.exists(gif_path)) {
+  knitr::asis_output(
+    paste0('<img src="', knitr::image_uri(gif_path),
+           '" style="max-width:100%;max-height:160px;display:block;margin:auto;">')
+  )
+} else {
+  cat("*Place duck_dance.gif in the figures/ folder*")
+}
+```
+
+Row {data-height=280}
+-------------------------------------
+
+### How to work through this file
+
+**Step 1 — Load your data (do this first)**
+
+In the `global` chunk at the very top of the `.Rmd`, replace the `mtcars` block with your
+own dataset. Name it `my_data`. Update `numeric_cols` and `categorical_cols` to match your
+column names. Run Document to confirm it loads without errors.
+
+**Step 2 — Work through the tabs**
+
+Each tab is one exercise. The instructions are in the box to the right of the output.
+Replace `# TODO` comments and `"TODO: ..."` strings with code that works for your data.
+
+**Step 3 — Check your work**
+
+Use the checklist on the last tab before considering the dashboard finished.
+
+**Step 4 — Make it yours**
+
+Once every exercise works, go back and customise. Change themes, labels, colors, and layout.
+Add a new page tab. Adjust `data-height` values. This file is your starting point, not your
+final product.
+
+### Quick reference
+
+```markdown
+# Three layout levels:
+Page Title {data-icon="fa-home"}   # ==== → navbar tab
+=====================================
+
+Row {data-height=300}              # ---- → row
+-------------------------------------
+
+### Box title                      # ### → panel
+```
+
+```r
+# Shiny building blocks:
+inputPanel(...)                    # group input controls
+selectInput("id", "Label:", choices)
+checkboxGroupInput("id", "Label:", choices)
+sliderInput("id", "Label:", min, max, value)
+radioButtons("id", "Label:", choices)
+
+reactive({ ... })                  # cache shared filtered data
+renderPlot({ ... })                # ggplot output
+renderPlotly({ ... })              # plotly output
+renderDT({ ... })                  # DT table output
+req(condition)                     # stop silently if FALSE
+```
+
+Row {data-height=160}
+-------------------------------------
+
+### Your dataset
+
+```{r}
+renderPrint({
+  cat("Rows:", nrow(my_data), "  Columns:", ncol(my_data), "\n\n")
+  cat("Column names:\n")
+  cat(paste(" ", names(my_data), collapse = "\n"), "\n\n")
+  cat("First 3 rows:\n")
+  print(head(my_data, 3))
+})
+```
+
+### Notes about your data
+
+Replace this text with notes about your dataset. You will thank yourself later.
+
+- **Source:** *(where does this data come from?)*
+- **One row = ** *(what does one observation represent?)*
+- **Key outcome:** *(what are you trying to show?)*
+- **Key grouping variable:** *(how do you want to split or filter?)*
+- **Any cleaning done in the global chunk:** *(note it here)*
+
+
+Exercise 1: valueBox {data-icon="fa-hashtag"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Exercise 1 — Summarise your data with three valueBox outputs
+
+A `valueBox` highlights a single number with a label and an optional icon. Put one per
+`###` box inside a short row. The color signals meaning at a glance.
+
+Row {data-height=130}
+-------------------------------------
+
+### KPI 1
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 1a — Replace value and caption with something real from my_data.
+# Ideas: nrow(my_data), mean(my_data$column), sum(my_data$column == "X")
+# ══════════════════════════════════════════════════════════════════════════
+valueBox(
+  value   = "???",
+  caption = "TODO: short label",
+  icon    = "fa-database",
+  color   = "primary"
+)
+```
+
+### KPI 2
+
+```{r}
+# TODO 1b
+valueBox(
+  value   = "???",
+  caption = "TODO: short label",
+  icon    = "fa-bar-chart",
+  color   = "info"
+)
+```
+
+### KPI 3
+
+```{r}
+# TODO 1c
+valueBox(
+  value   = "???",
+  caption = "TODO: short label",
+  icon    = "fa-check",
+  color   = "success"
+)
+```
+
+Row {data-height=280}
+-------------------------------------
+
+### Your notes for this exercise
+
+- KPI 1 shows: *(replace with what you chose and why)*
+- KPI 2 shows: *(replace)*
+- KPI 3 shows: *(replace)*
+
+### Reference: valueBox arguments
+
+```r
+valueBox(
+  value   = nrow(my_data),       # any R expression: a number, string, or %
+  caption = "Total records",     # short descriptive label below the value
+  icon    = "fa-users",          # Font Awesome: fa-  | Ionicons: ion-
+  color   = "primary"            # primary / success / info / warning / danger
+                                 # or any hex color: "#2C7BB6"
+)
+```
+
+**Worked example for `mtcars`:**
+
+```r
+# KPI 1 — number of cars in the dataset
+valueBox(nrow(my_data), caption = "Cars", icon = "fa-car", color = "primary")
+
+# KPI 2 — average miles per gallon, rounded to 1 decimal
+valueBox(round(mean(my_data$mpg), 1), caption = "Mean MPG",
+         icon = "fa-tachometer-alt", color = "info")
+
+# KPI 3 — count of manual transmission cars
+valueBox(sum(my_data$am == "Manual"), caption = "Manual transmission",
+         icon = "fa-cog", color = "success")
+```
+
+
+Exercise 2: Static ggplot {data-icon="fa-chart-bar"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Exercise 2 — Build a static ggplot that runs at render time (no Shiny inputs)
+
+A plain ggplot in a code chunk works exactly as it does in any R Markdown document.
+Write it, and it renders into the box when you click Run Document.
+
+Row {data-height=440}
+-------------------------------------
+
+### Your static plot
+
+```{r fig.height=4.5}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 2 — Replace x, y, color, and labels with your own variables.
+# Add or change the geometry to suit your data.
+# ══════════════════════════════════════════════════════════════════════════
+ggplot(my_data, aes(x = wt, y = mpg, color = cyl)) +  # TODO: your variables
+  geom_point(alpha = 0.7, size = 2.5) +               # TODO: try geom_boxplot, geom_histogram, geom_bar
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title    = "TODO: write a descriptive title",
+    subtitle = "TODO: one-line description of what this shows",
+    x        = "TODO: x axis label with units",
+    y        = "TODO: y axis label with units",
+    color    = "TODO: legend title"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position  = "bottom",
+        panel.grid.minor = element_blank())
+```
+
+### Geometry options
+
+Choose the geometry that fits your data:
+
+```r
+# Two numeric variables — scatter plot
+geom_point(alpha = 0.7, size = 2.5)
+
+# One numeric, one categorical — box plot
+ggplot(my_data, aes(x = cyl, y = mpg, fill = cyl)) +
+  geom_boxplot(alpha = 0.8)
+
+# One numeric variable — histogram
+ggplot(my_data, aes(x = mpg, fill = am)) +
+  geom_histogram(bins = 15, alpha = 0.7, position = "identity")
+
+# One categorical variable — bar count
+ggplot(my_data, aes(x = cyl, fill = am)) +
+  geom_bar(position = "dodge")
+
+# Split into panels by a grouping variable
++ facet_wrap(~ cyl, ncol = 3)
+```
+
+**Color scales:**
+
+```r
+scale_color_brewer(palette = "Set2")    # categorical, color aesthetic
+scale_fill_brewer(palette  = "Blues")   # categorical, fill aesthetic
+scale_color_viridis_c()                 # continuous color
+```
+
+
+Exercise 3: Plotly {data-icon="fa-mouse-pointer"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Exercise 3 — Add hover tooltips by converting your ggplot to plotly
+
+Take the ggplot you built in Exercise 2 (or a new one) and wrap it in `ggplotly()`.
+Add a `text` aesthetic to control exactly what appears when the user hovers over a point.
+
+Row {data-height=460}
+-------------------------------------
+
+### Your plotly chart
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 3 — Add a text aesthetic and wrap in ggplotly().
+# Step 1: add text = paste0(...) inside aes()
+# Step 2: wrap the ggplot object in ggplotly(p, tooltip = "text")
+# ══════════════════════════════════════════════════════════════════════════
+p <- ggplot(my_data,
+            aes(x     = wt,           # TODO: your x variable
+                y     = mpg,          # TODO: your y variable
+                color = cyl,          # TODO: your color variable
+                text  = paste0(       # TODO: build your tooltip
+                  "Car: ",    car,    "\n",
+                  "MPG: ",    mpg,    "\n",
+                  "Weight: ", wt
+                ))) +
+  geom_point(alpha = 0.7, size = 2.5) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    title = "TODO: title",
+    x     = "TODO: x label",
+    y     = "TODO: y label"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position  = "bottom",
+        panel.grid.minor = element_blank())
+
+ggplotly(p, tooltip = "text")
+```
+
+### How the tooltip works
+
+The `text` aesthetic is what appears when the user hovers. Build it with `paste0()`:
+
+```r
+aes(text = paste0(
+  "Record: ",  my_id,         "\n",
+  "Value: ",   round(x, 1),   "\n",
+  "Group: ",   group_var
+))
+```
+
+Then pass `tooltip = "text"` to `ggplotly()`. Without that argument, plotly shows
+all aesthetics — often cluttered.
+
+**Formatting numbers in the tooltip:**
+
+```r
+scales::comma(price)        # → "12,345"
+round(rate * 100, 1)        # → 12.3  (combine with paste0 to add %)
+scales::dollar(revenue)     # → "$12,345"
+```
+
+**Moving the legend below the chart:**
+
+```r
+ggplotly(p, tooltip = "text") %>%
+  layout(legend = list(orientation = "h", y = -0.2))
+```
+
+
+Exercise 4: DT Table {data-icon="fa-table"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Exercise 4 — Build an interactive summary table with column filters
+
+Dashboards should show **aggregated, summary data** in tables — not individual patient
+rows. Build a table where each row is one pathogen × study combination, with prevalence
+counts and rates. The user can then filter to a study or search for a pathogen by name.
+
+Row {data-height=480}
+-------------------------------------
+
+### Your summary table
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 4 — Compute a summary table and pass it to datatable().
+#
+# The placeholder below builds a pathogen × study prevalence summary.
+# Each row is one pathogen in one study — not an individual case.
+#
+# Adapt the column selection and formatting to your own data:
+#   - Add or remove pathogens from PATHOGENS if using a subset
+#   - Swap enr_haz summaries for a continuous variable in your data
+#   - Change formatStyle() colors to suit your variable range
+# ══════════════════════════════════════════════════════════════════════════
+summary_df <- expand.grid(
+  Pathogen = pathogen_labels[PATHOGENS],
+  Study    = STUDIES,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    path_key       = PATHOGENS[match(Pathogen, pathogen_labels)],
+    `N cases`      = sapply(Study, function(s) sum(my_data$study == s)),
+    `N attr`       = mapply(function(pk, s)
+                      sum(my_data[[paste0(pk, "_tac_attr")]] == 1 &
+                          my_data$study == s, na.rm = TRUE),
+                      path_key, Study),
+    `N detected`   = mapply(function(pk, s)
+                      sum(my_data[[paste0(pk, "_bin")]] == 1 &
+                          my_data$study == s, na.rm = TRUE),
+                      path_key, Study),
+    `Attr %`       = round(100 * `N attr`     / `N cases`, 1),
+    `Detected %`   = round(100 * `N detected` / `N cases`, 1),
+    `Mean HAZ`     = round(sapply(Study, function(s)   # TODO: swap for your variable
+                      mean(my_data$enr_haz[my_data$study == s], na.rm = TRUE)), 2)
+  ) %>%
+  select(Study, Pathogen, `N cases`, `N attr`, `Attr %`,
+         `N detected`, `Detected %`, `Mean HAZ`)
+
+datatable(
+  summary_df,
+  options  = list(pageLength = 12, scrollX = TRUE, dom = "ftip"),
+  filter   = "top",
+  rownames = FALSE,
+  class    = "compact stripe"
+) %>%
+  formatStyle(
+    "Attr %",
+    background         = styleColorBar(c(0, 30), "#6BAED6"),
+    backgroundSize     = "90% 75%",
+    backgroundRepeat   = "no-repeat",
+    backgroundPosition = "center"
+  )
+```
+
+### Formatting and dom options
+
+```r
+# Round numeric columns
+formatRound(columns = "Mean HAZ", digits = 2)
+
+# Format as percentage (multiplies by 100 and adds %)
+formatPercentage(columns = "rate_col", digits = 1)
+
+# Inline colour bar — visual encoding without a separate chart
+formatStyle(
+  "Attr %",
+  background         = styleColorBar(c(0, 30), "#6BAED6"),
+  backgroundSize     = "90% 75%",
+  backgroundRepeat   = "no-repeat",
+  backgroundPosition = "center"
+)
+```
+
+**`dom` string — controls which elements appear around the table:**
+
+| Letter | Element |
+|---|---|
+| `f` | Global search box |
+| `t` | The table |
+| `i` | Row count info |
+| `p` | Page navigation |
+| `l` | "Show N entries" dropdown |
+| `B` | Download buttons (add `"B"` to dom and the `Buttons` extension) |
+
+**Note:** In a static dashboard (Part 1), you call `datatable()` directly and it works.
+In a Shiny dashboard (Part 2 and this file), wrap it in `renderDT({})` so it reacts to
+inputs. Exercise 6 shows this pattern.
+
+
+Exercise 5: Add Shiny Inputs {data-icon="fa-bolt"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Exercise 5 — Make your ggplot reactive with Shiny inputs
+
+Add inputs, a `reactive()` to filter the data, and a `renderPlot()` to draw the figure.
+
+Row {data-height=180}
+-------------------------------------
+
+### Controls {data-width=300}
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 5a — Replace with inputs that make sense for your data.
+# Use prefix ex5_ on all input IDs.
+# ══════════════════════════════════════════════════════════════════════════
+inputPanel(
+  checkboxGroupInput(
+    "ex5_group",
+    label    = "TODO: filter label",
+    choices  = levels(my_data$cyl),       # TODO: your categorical column
+    selected = levels(my_data$cyl)
+  ),
+
+  sliderInput(
+    "ex5_range",
+    label = "TODO: numeric filter label",
+    min   = floor(min(my_data$mpg)),      # TODO: your numeric column
+    max   = ceiling(max(my_data$mpg)),    # TODO: your numeric column
+    value = c(floor(min(my_data$mpg)),
+              ceiling(max(my_data$mpg)))
+  )
+)
+```
+
+Row {data-height=460}
+-------------------------------------
+
+### Reactive plot {data-width=580}
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 5b — Fill in reactive() and renderPlot().
+# ══════════════════════════════════════════════════════════════════════════
+ex5_data <- reactive({
+  my_data %>%
+    filter(
+      cyl %in% input$ex5_group,          # TODO: your categorical column
+      mpg >= input$ex5_range[1],         # TODO: your numeric column
+      mpg <= input$ex5_range[2]          # TODO: your numeric column
+    )
+})
+
+renderPlot({
+  d <- ex5_data()
+  req(nrow(d) > 0)
+
+  # TODO 5c — Build your ggplot using d (the filtered data).
+  ggplot(d, aes(x = wt, y = mpg, color = cyl)) +  # TODO: your variables
+    geom_point(size = 2.5, alpha = 0.75) +
+    scale_color_brewer(palette = "Set2") +
+    labs(
+      title    = "TODO: title",
+      subtitle = paste0(nrow(d), " records match current filters"),  # keep this
+      x        = "TODO: x label",
+      y        = "TODO: y label"
+    ) +
+    theme_minimal(base_size = 13) +
+    theme(legend.position  = "bottom",
+          panel.grid.minor = element_blank())
+}, res = 110)
+```
+
+### What to verify {data-width=320}
+
+Once your inputs and plot are working, check these:
+
+**Blank output, not an error, when filter is empty**
+
+If you uncheck all boxes and move the slider to an impossible range, the plot should
+show a blank space — not a red error message. That is `req(nrow(d) > 0)` working.
+If you see an error instead, make sure `req()` is the second line inside `renderPlot()`.
+
+**Subtitle count updates**
+
+The `paste0(nrow(d), " records match current filters")` line in `subtitle` re-renders
+with the plot because `d` and `nrow(d)` are read inside `renderPlot()`.
+
+**Input ID prefix**
+
+All inputs on this tab use `ex5_`. That means they do not interfere with inputs on
+other tabs even if they filter the same column.
+
+**Column name mismatch**
+
+The most common error at this stage: the column name in `filter()` does not match the
+actual column in `my_data`. Check with `names(my_data)` in the console.
+
+
+Exercise 6: Shared Reactive {data-icon="fa-link"}
+=====================================
+
+Row {data-height=80}
+-------------------------------------
+
+### Exercise 6 — Feed one reactive() into both a plot and a table
+
+This exercise demonstrates the most important Shiny pattern: define a `reactive()` once,
+then call it from multiple `render*()` functions. The filter runs once; both outputs update.
+
+Row {data-height=180}
+-------------------------------------
+
+### Controls {data-width=280}
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 6a — Add inputs. Use prefix ex6_ on all IDs.
+# ══════════════════════════════════════════════════════════════════════════
+inputPanel(
+  checkboxGroupInput(
+    "ex6_group",
+    label    = "TODO: filter label",
+    choices  = levels(my_data$cyl),      # TODO: your categorical column
+    selected = levels(my_data$cyl)
+  ),
+
+  selectInput(
+    "ex6_sort",
+    label   = "Sort table by:",
+    choices  = numeric_cols,             # defined in global chunk
+    selected = numeric_cols[1]
+  )
+)
+```
+
+Row {data-height=420}
+-------------------------------------
+
+### Reactive plot {data-width=460}
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 6b — Define ex6_data reactive. Both outputs below will call it.
+# ══════════════════════════════════════════════════════════════════════════
+ex6_data <- reactive({
+  my_data %>%
+    filter(cyl %in% input$ex6_group)     # TODO: your column and input
+})
+
+renderPlot({
+  d <- ex6_data()
+  req(nrow(d) > 0)
+
+  # TODO 6c — A summary plot works well here: boxplot or bar chart
+  ggplot(d, aes(x = cyl, y = mpg, fill = cyl)) +  # TODO: your variables
+    geom_boxplot(alpha = 0.8) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(
+      title    = "TODO: title",
+      subtitle = paste0(nrow(d), " records"),
+      x        = "TODO: x label",
+      y        = "TODO: y label"
+    ) +
+    theme_minimal(base_size = 13) +
+    theme(legend.position  = "none",
+          panel.grid.minor = element_blank())
+}, res = 110)
+```
+
+### Reactive table {data-width=440}
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════
+# TODO 6d — Use ex6_data() here — the SAME reactive as the plot.
+# The filter runs once; both outputs share the result.
+# ══════════════════════════════════════════════════════════════════════════
+renderDT({
+  d <- ex6_data()
+  req(nrow(d) > 0)
+
+  d %>%
+    arrange(desc(.data[[input$ex6_sort]])) %>%
+    datatable(
+      options  = list(pageLength = 8, dom = "tip", scrollX = TRUE),
+      rownames = FALSE,
+      class    = "compact stripe"
+    ) %>%
+    formatRound(columns = input$ex6_sort, digits = 1)
+})
+```
+
+
+Checklist & Next Steps {data-icon="fa-check-square"}
+=====================================
+
+Row {data-height=100}
+-------------------------------------
+
+### Review your dashboard before sharing it
+
+Work through this checklist. Change `[ ]` to `[x]` in the source `.Rmd` for each item
+you have completed.
+
+Row {data-height=380}
+-------------------------------------
+
+### Checklist
+
+**Setup**
+
+- [ ] `my_data` loads without errors
+- [ ] `numeric_cols` and `categorical_cols` reflect your actual column names
+- [ ] The dataset notes box on the Instructions tab is filled in
+- [ ] No sensitive or identifying data is included unless intended
+
+**Exercises**
+
+- [ ] Exercise 1: three valueBoxes show meaningful numbers with real labels
+- [ ] Exercise 2: static ggplot has a title, labelled axes, and a color or fill aesthetic
+- [ ] Exercise 3: ggplotly tooltip shows at least two useful columns from the data
+- [ ] Exercise 4: DT table has column filters and at least one format function applied
+- [ ] Exercise 5: reactive plot updates on input change; shows blank (not error) when filter is empty
+- [ ] Exercise 6: plot and table both call the same `reactive()` and update together
+
+**Polish**
+
+- [ ] All `# TODO` comments replaced with real code
+- [ ] All `"TODO: ..."` strings replaced with real labels and titles
+- [ ] All placeholder text in Markdown boxes updated
+- [ ] Input IDs use per-tab prefixes (`ex5_`, `ex6_`, etc.)
+
+### Stretch goals
+
+**Layout**
+
+- Add a new page tab for a second view of your data
+- Use `{.tabset}` on a row to create sub-tabs within a page
+- Add a `{.sidebar}` column to one page (see Example 1 in Part 2)
+- Try switching `orientation: columns` in the YAML
+
+**Outputs**
+
+- Add a `gauge()` showing a rate or percentage
+- Add download buttons to the DT table: set `dom = "Bftip"` and add
+  `extensions = "Buttons"` to `datatable()`
+- Add `facet_wrap()` to the static ggplot
+
+**Shiny**
+
+- Add `renderText()` to show a dynamic caption below a plot
+- Add a `radioButtons()` that switches the y-axis variable in the reactive plot
+- Add `conditionalPanel()` to show an extra input only when a specific choice is selected
+
+Row {data-height=220}
+-------------------------------------
+
+### Sharing your finished dashboard
+
+**As a static HTML file** — remove `runtime: shiny` from the YAML, remove all Shiny input
+and render functions (replace `renderPlot({...})` with plain ggplot calls), then click
+**Knit**. The result is a single `.html` file you can email.
+
+**As a live Shiny dashboard** — deploy to shinyapps.io:
+
+```r
+install.packages("rsconnect")
+rsconnect::setAccountInfo(name   = "your-account",
+                          token  = "YOUR_TOKEN",
+                          secret = "YOUR_SECRET")
+rsconnect::deployApp()   # run from the folder containing your .Rmd
+```
+
+After deploying you receive a public URL. The free tier on shinyapps.io allows
+25 active hours per month. For team or institutional use, Posit Connect provides
+authentication, scheduled refreshes, and usage monitoring.
+
